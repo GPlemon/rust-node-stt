@@ -31,4 +31,4 @@ Thumbs.db
 *.log
 
 # Environment
-.env*.bin
+.env

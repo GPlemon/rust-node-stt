@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loaded {} audio samples", audio_data.len());
     
     // Load Whisper model
-    let model_path = "modals/ggml-base.en.bin";
+    let model_path = "models/ggml-base.en.bin";
     let ctx = WhisperContext::new_with_params(
         model_path,
         WhisperContextParameters::default()
@@ -73,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Set language to English for better performance
     params.set_language(Some("en"));
-    params.set_print_progress(true);
+    params.set_print_progress(false);  // Disable verbose progress logs
     params.set_print_timestamps(true);
     
     // Create state and transcribe
