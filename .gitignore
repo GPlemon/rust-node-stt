@@ -1,0 +1,34 @@
+# Model files
+*.bin
+*.ggml
+*.onnx
+*.pb
+*.h5
+*.pkl
+*.model
+
+# Large data files
+*.wav
+*.mp3
+*.mp4
+*.avi
+
+# Build artifacts
+target/
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment
+.env*.bin

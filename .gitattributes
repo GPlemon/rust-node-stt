@@ -1,0 +1,2 @@
+*.bin filter=lfs diff=lfs merge=lfs -text
+ruststt/modals/ggml-base.en.bin filter=lfs diff=lfs merge=lfs -text
