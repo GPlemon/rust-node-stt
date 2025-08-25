@@ -1,90 +1,97 @@
 use hound;
 use whisper_rs::{WhisperContext, WhisperContextParameters, FullParams, SamplingStrategy};
+use std::process::Command;
+use std::path::Path;
+use std::error::Error;
+use std::fs;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load WAV
-    let mut reader = hound::WavReader::open("fixed_audio.wav")?; // Use the fixed file
+fn fix_and_open_wav_inplace(path_str: &str) -> Result<hound::WavReader<std::io::BufReader<fs::File>>, Box<dyn Error>> {
+    println!("Attempting to repair '{}' in-place with ffmpeg...", path_str);
+
+    let input_path = Path::new(path_str);
+    let temp_path = input_path.with_extension("repaired.tmp.wav");
+
+    let output = Command::new("ffmpeg")
+        .arg("-i")
+        .arg(path_str)
+        .arg("-c:a")
+        .arg("copy")
+        .arg("-y")
+        .arg(&temp_path)
+        .output()?;
+
+    if !output.status.success() {
+        let _ = fs::remove_file(&temp_path);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "ffmpeg failed to repair the file. Is ffmpeg installed and in your PATH?\nffmpeg stderr: {}", 
+            stderr
+        ).into());
+    }
+
+    fs::rename(&temp_path, path_str)?;
+    println!("Successfully repaired and replaced '{}'.", path_str);
+
+    hound::WavReader::open(path_str).map_err(|e| {
+        format!("Failed to open the now-repaired file '{}': {}", path_str, e).into()
+    })
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let input_filename = "audio copy.wav";
+    let mut reader = fix_and_open_wav_inplace(input_filename)?;
+    
     let spec = reader.spec();
     println!("Sample rate: {}, Channels: {}, Bits per sample: {}", 
              spec.sample_rate, spec.channels, spec.bits_per_sample);
     
-    // Check if sample rate is 16kHz (Whisper expects this)
     if spec.sample_rate != 16000 {
         eprintln!("Warning: Whisper works best with 16kHz audio. Current: {}Hz", spec.sample_rate);
     }
     
-    // Read samples based on the actual format (16-bit PCM)
     let audio_data: Vec<f32> = match spec.bits_per_sample {
         16 => {
-            // Read as i16 and convert to f32 normalized to [-1.0, 1.0]
             if spec.channels == 2 {
-                // Stereo to mono conversion
-                let samples: Result<Vec<i16>, _> = reader.samples::<i16>().collect();
-                let samples = samples?;
-                let mut mono = Vec::with_capacity(samples.len() / 2);
-                
-                for chunk in samples.chunks_exact(2) {
+                let samples = reader.samples::<i16>().collect::<Result<Vec<_>, _>>()?;
+                samples.chunks_exact(2).map(|chunk| {
                     let left = chunk[0] as f32 / 32768.0;
                     let right = chunk[1] as f32 / 32768.0;
-                    mono.push((left + right) / 2.0);
-                }
-                mono
+                    (left + right) / 2.0
+                }).collect()
             } else {
-                // Mono - convert i16 to f32
                 reader.samples::<i16>()
                     .map(|s| s.map(|sample| sample as f32 / 32768.0))
                     .collect::<Result<Vec<f32>, _>>()?
             }
         },
         32 => {
-            // Already f32 format
             if spec.channels == 2 {
-                let samples: Result<Vec<f32>, _> = reader.samples::<f32>().collect();
-                let samples = samples?;
-                let mut mono = Vec::with_capacity(samples.len() / 2);
-                
-                for chunk in samples.chunks_exact(2) {
-                    mono.push((chunk[0] + chunk[1]) / 2.0);
-                }
-                mono
+                let samples = reader.samples::<f32>().collect::<Result<Vec<_>, _>>()?;
+                samples.chunks_exact(2).map(|chunk| (chunk[0] + chunk[1]) / 2.0).collect()
             } else {
-                reader.samples::<f32>().collect::<Result<Vec<f32>, _>>()?
+                reader.samples::<f32>().collect::<Result<Vec<_>, _>>()?
             }
         },
-        _ => {
-            return Err(format!("Unsupported bit depth: {}", spec.bits_per_sample).into());
-        }
+        _ => return Err(format!("Unsupported bit depth: {}", spec.bits_per_sample).into()),
     };
     
     println!("Loaded {} audio samples", audio_data.len());
     
-    // Load Whisper model
     let model_path = "models/ggml-base.en.bin";
-    let ctx = WhisperContext::new_with_params(
-        model_path,
-        WhisperContextParameters::default()
-    ).expect("failed to load model");
+    let ctx = WhisperContext::new_with_params(model_path, WhisperContextParameters::default())
+        .expect("failed to load model");
     
-    // Set transcription params
-    let mut params = FullParams::new(SamplingStrategy::BeamSearch {
-        beam_size: 5,
-        patience: -1.0,
-    });
-    
-    // Set language to English for better performance
+    let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: 5, patience: -1.0 });
     params.set_language(Some("en"));
-    params.set_print_progress(false);  // Disable verbose progress logs
+    params.set_print_progress(false);
     params.set_print_timestamps(true);
     
-    // Create state and transcribe
     let mut state = ctx.create_state().expect("failed to create state");
     state.full(params, &audio_data).expect("failed to run model");
     
-    // Print results
     println!("\nTranscription results:");
     for segment in state.as_iter() {
-        println!(
-            "[{:.2}s - {:.2}s]: {}",
+        println!("[{:.2}s - {:.2}s]: {}",
             segment.start_timestamp() as f64 / 1000.0,
             segment.end_timestamp() as f64 / 1000.0,
             segment
