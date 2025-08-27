@@ -39,6 +39,9 @@ fn fix_and_open_wav_inplace(path_str: &str) -> Result<hound::WavReader<std::io::
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // 🔇 Install logging hooks to silence whisper.cpp/ggml debug output
+    whisper_rs::install_logging_hooks();
+
     let input_filename = "audio.wav";
     let mut reader = fix_and_open_wav_inplace(input_filename)?;
     
@@ -70,7 +73,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let samples = reader.samples::<f32>().collect::<Result<Vec<_>, _>>()?;
                 samples.chunks_exact(2).map(|chunk| (chunk[0] + chunk[1]) / 2.0).collect()
             } else {
-                reader.samples::<f32>().collect::<Result<Vec<_>, _>>()?
+                reader.samples::<f32>().collect::<Result<Vec<f32>, _>>()?
             }
         },
         _ => return Err(format!("Unsupported bit depth: {}", spec.bits_per_sample).into()),
@@ -82,10 +85,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     let ctx = WhisperContext::new_with_params(model_path, WhisperContextParameters::default())
         .expect("failed to load model");
     
-    let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: 1, patience: -1.0 });
+    let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: 2, patience: -1.0 });
     params.set_language(Some("en"));
     params.set_print_progress(false);
-    params.set_print_timestamps(true);
+    params.set_print_realtime(false);
+    params.set_print_timestamps(false);
+    params.set_print_special(false);
     
     let mut state = ctx.create_state().expect("failed to create state");
 
