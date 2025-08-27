@@ -4,6 +4,7 @@ use std::process::Command;
 use std::path::Path;
 use std::error::Error;
 use std::fs;
+use std::time::Instant;
 
 fn fix_and_open_wav_inplace(path_str: &str) -> Result<hound::WavReader<std::io::BufReader<fs::File>>, Box<dyn Error>> {
     println!("Attempting to repair '{}' in-place with ffmpeg...", path_str);
@@ -38,7 +39,7 @@ fn fix_and_open_wav_inplace(path_str: &str) -> Result<hound::WavReader<std::io::
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let input_filename = "audio copy.wav";
+    let input_filename = "audio.wav";
     let mut reader = fix_and_open_wav_inplace(input_filename)?;
     
     let spec = reader.spec();
@@ -81,13 +82,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     let ctx = WhisperContext::new_with_params(model_path, WhisperContextParameters::default())
         .expect("failed to load model");
     
-    let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: 5, patience: -1.0 });
+    let mut params = FullParams::new(SamplingStrategy::BeamSearch { beam_size: 1, patience: -1.0 });
     params.set_language(Some("en"));
     params.set_print_progress(false);
     params.set_print_timestamps(true);
     
     let mut state = ctx.create_state().expect("failed to create state");
+
+    let start = Instant::now();
     state.full(params, &audio_data).expect("failed to run model");
+    let duration = start.elapsed();
+    println!("Transcription completed in {:.2?}", duration);
     
     println!("\nTranscription results:");
     for segment in state.as_iter() {
